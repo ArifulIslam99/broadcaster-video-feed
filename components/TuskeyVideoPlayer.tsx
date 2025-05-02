@@ -1,4 +1,3 @@
-// components/TuskyVideoPlayer.tsx
 import { ResizeMode, Video } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import React, { useEffect, useRef, useState } from 'react';
@@ -15,13 +14,24 @@ interface Props {
 
 export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
   const [videoUri, setVideoUri] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Default to false until isVisible triggers it
   const videoRef = useRef<Video>(null);
 
   useEffect(() => {
+    if (!isVisible || videoUri) return;
+
     const downloadVideo = async () => {
+      setLoading(true);
       try {
         const uri = FileSystem.documentDirectory + `${fileId}.mp4`;
+
+        // Check if the file already exists
+        const fileInfo = await FileSystem.getInfoAsync(uri);
+        if (fileInfo.exists) {
+          setVideoUri(uri);
+          return;
+        }
+
         const downloadResumable = FileSystem.createDownloadResumable(
           `https://api.tusky.io/files/${fileId}/data`,
           uri,
@@ -35,8 +45,9 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
         setLoading(false);
       }
     };
+
     downloadVideo();
-  }, [fileId]);
+  }, [fileId, isVisible, videoUri]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -47,7 +58,7 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
   if (loading || !videoUri) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#fff" size="large" />
+        {loading && <ActivityIndicator color="#fff" size="large" />}
       </View>
     );
   }
@@ -72,7 +83,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   centered: {
-    flex: 1,
+    width,
+    height,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#000',
