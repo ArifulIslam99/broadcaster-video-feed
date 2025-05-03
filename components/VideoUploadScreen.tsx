@@ -13,7 +13,6 @@ const API_KEY = '4c52d09a-3fdb-4972-9f9b-289d0b0e4c78';
 const VAULT_ID = '9c83bf67-7890-4b78-aed7-cad9f391da48';
 const PACKAGE_ID = '0x942ea57ff14fcef33b2dbe9cc888d256edad279c4e483e6c31173e722306d639';
 const OBJECT_ID = "0xbacf4415d279fc240f1de1967eaca4933502ca7803e3cf8295cadad9eca4dacf";
-// const SECRET_KEY_HEX = "ec973ade8857a69ae5bdd5414e4636b9340c708dec16d961feaf2b48defe00bb";
 
 // Sui setup
 const secretKey = Buffer.from(SECRET_KEY_HEX, "hex");
