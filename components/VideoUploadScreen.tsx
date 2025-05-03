@@ -1,157 +1,127 @@
-import * as FileSystem from 'expo-file-system';
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { Transaction } from "@mysten/sui/transactions";
+import { Buffer } from 'buffer';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Button, Text, View } from 'react-native';
-import { Upload } from 'tus-js-client'; // Import the tus-js-client
+import { Upload } from 'tus-js-client';
 
-// Path to store the file_id.json in the document directory
-const FILE_IDS_PATH = FileSystem.documentDirectory + 'file_id.json';
-const API_KEY = '4c52d09a-3fdb-4972-9f9b-289d0b0e4c78'; // Replace with your actual API key
-const VAULT_ID = '9c83bf67-7890-4b78-aed7-cad9f391da48'; // Replace with your actual vault ID
+import { SECRET_KEY_HEX } from "../config";
+// Constants
+const API_KEY = '4c52d09a-3fdb-4972-9f9b-289d0b0e4c78';
+const VAULT_ID = '9c83bf67-7890-4b78-aed7-cad9f391da48';
+const PACKAGE_ID = '0x942ea57ff14fcef33b2dbe9cc888d256edad279c4e483e6c31173e722306d639';
+const OBJECT_ID = "0xbacf4415d279fc240f1de1967eaca4933502ca7803e3cf8295cadad9eca4dacf";
+// const SECRET_KEY_HEX = "ec973ade8857a69ae5bdd5414e4636b9340c708dec16d961feaf2b48defe00bb";
+
+// Sui setup
+const secretKey = Buffer.from(SECRET_KEY_HEX, "hex");
+const keypair = Ed25519Keypair.fromSecretKey(secretKey);
+const client = new SuiClient({ url: getFullnodeUrl("testnet") });
 
 const TuskyUpload = () => {
-    const [uploading, setUploading] = useState(false);
-    const [status, setStatus] = useState<string | null>(null);
-    const [fileIds, setFileIds] = useState<string[]>([]);
-    const [video, setVideo] = useState<any>(null); // For storing selected video
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [video, setVideo] = useState<any>(null);
 
-    // Function to save file ID to the JSON file
-    const saveFileId = async (newFileId: string) => {
-        try {
-            const fileExists = await FileSystem.getInfoAsync(FILE_IDS_PATH);
-            let fileIdsArray: string[] = [];
+  const pickVideo = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      alert('Permission required to access media library.');
+      return;
+    }
 
-            if (fileExists.exists) {
-                const fileContents = await FileSystem.readAsStringAsync(FILE_IDS_PATH);
-                fileIdsArray = JSON.parse(fileContents);
-            } else {
-                fileIdsArray = [];
-            }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      quality: 1,
+    });
 
-            if (!fileIdsArray.includes(newFileId)) {
-                fileIdsArray.push(newFileId);
-            }
+    if (!result.canceled && result.assets?.length > 0) {
+      setVideo(result.assets[0]);
+      setStatus(null);
+    }
+  };
 
-            await FileSystem.writeAsStringAsync(FILE_IDS_PATH, JSON.stringify(fileIdsArray));
+  const saveFileIdOnChain = async (fileId: string) => {
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::file_storage::add_file_id`,
+        arguments: [tx.object(OBJECT_ID), tx.pure.string(fileId)],
+      });
 
-            setFileIds(fileIdsArray);
-            console.log('File ID saved:', newFileId);
-        } catch (error) {
-            console.error('Error saving file ID:', error);
-            setStatus('❌ Error saving file ID');
-        }
-    };
+      await client.signAndExecuteTransaction({ transaction: tx, signer: keypair });
+      setStatus("✅ Video Stored Onchain!");
+    } catch (error) {
+      console.error("Error storing file ID on-chain:", error);
+      setStatus("❌ Error storing file ID");
+    }
+  };
 
-    // Function to load the file IDs from the JSON file
-    const loadFileIds = async () => {
-        try {
-            const fileExists = await FileSystem.getInfoAsync(FILE_IDS_PATH);
-            if (fileExists.exists) {
-                const fileContents = await FileSystem.readAsStringAsync(FILE_IDS_PATH);
-                const loadedFileIds = JSON.parse(fileContents);
-                setFileIds(loadedFileIds);
-            } else {
-                console.log('File does not exist, initializing an empty file.');
-            }
-        } catch (error) {
-            console.error('Error loading file IDs:', error);
-        }
-    };
+  const uploadToTusky = async () => {
+    if (!video) return;
+    setUploading(true);
+    setStatus("Uploading...");
 
-    // Function to pick a video from the gallery
-    const pickVideo = async () => {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-            alert('Permission required to access media library.');
-            return;
-        }
+    try {
+      const res = await fetch(video.uri);
+      const blob = await res.blob();
 
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-            quality: 1,
-        });
+      const upload = new Upload(blob, {
+        endpoint: 'https://api.tusky.io/uploads',
+        headers: {
+          'Api-Key': API_KEY,
+        },
+        metadata: {
+          filename: video.uri.split('/').pop(),
+          filetype: 'video/mp4',
+          vaultId: VAULT_ID,
+        },
+        uploadSize: blob.size,
+        onError: (error) => {
+          console.error("Upload failed:", error);
+          setStatus("❌ Upload failed");
+          setUploading(false);
+        },
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
+          setStatus(`Uploading... ${percentage}%`);
+        },
+        onSuccess: () => {
+          const fileId = upload?.url?.split('/').pop();
+          console.log("✅ Upload complete!", fileId);
+          setStatus(`Video uploaded! File ID: ${fileId}`);
+          if (fileId) saveFileIdOnChain(fileId);
+          setUploading(false);
+        },
+      });
 
-        if (!result.canceled && result.assets?.length > 0) {
-            setVideo(result.assets[0]);
-            setStatus(null);
-        }
-    };
+      upload.start();
+    } catch (err) {
+      console.error("Upload error:", err);
+      setStatus("❌ Upload failed");
+      setUploading(false);
+    }
+  };
 
-    // Function to upload video to Tusky and get the file ID
-    const uploadToTusky = async () => {
-        if (!video) return;
-        setUploading(true);
-        setStatus('Uploading...');
-
-        try {
-            const res = await fetch(video.uri);
-            const blob = await res.blob();
-
-            // Initialize the tus client upload
-            const upload = new Upload(blob, {
-                endpoint: 'https://api.tusky.io/uploads', // Tusky endpoint
-                headers: {
-                    'Api-Key': API_KEY,
-                },
-                metadata: {
-                    filename: video.uri.split('/').pop(),
-                    filetype: 'video/mp4', // Assuming video type is mp4
-                    vaultId: VAULT_ID,
-                },
-                uploadSize: blob.size,
-                onError: (error) => {
-                    console.error('Upload failed:', error);
-                    setStatus('❌ Upload failed');
-                    setUploading(false);
-                },
-                onProgress: (bytesUploaded, bytesTotal) => {
-                    const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
-                    setStatus(`Uploading... ${percentage}%`);
-                },
-                onSuccess: () => {
-                    console.log('✅ Upload complete!');
-                    const fileId: any = upload?.url?.split('/').pop(); // Extract file ID from URL
-                    console.log('File ID:', fileId);
-                    setStatus(`Video uploaded! File ID: ${fileId}`);
-
-                    // Save the file ID after successful upload
-                    saveFileId(fileId);
-
-                    setUploading(false);
-                },
-            });
-
-            upload.start();
-        } catch (err) {
-            console.error('Upload error:', err);
-            setStatus('❌ Upload failed');
-            setUploading(false);
-        }
-    };
-
-    useEffect(() => {
-        loadFileIds();
-    }, []);
-
-    return (
-        <View style={{ padding: 120 }}>
-            <Button title="Pick Video from Gallery" onPress={pickVideo} />
-            {video && (
-                <Text style={{ marginTop: 10 }}>
-                    Selected: {video.uri.split('/').pop()}
-                </Text>
-            )}
-            <Button
-                title={uploading ? 'Uploading...' : 'Upload Video'}
-                onPress={uploadToTusky}
-                disabled={!video || uploading}
-            />
-            {uploading && <ActivityIndicator style={{ marginTop: 20 }} />}
-            {status && <Text style={{ marginTop: 10 }}>{status}</Text>}
-
-            
-        </View>
-    );
+  return (
+    <View style={{ padding: 120 }}>
+      <Button title="Pick Video from Gallery" onPress={pickVideo} />
+      {video && (
+        <Text style={{ marginTop: 10 }}>
+          Selected: {video.uri.split('/').pop()}
+        </Text>
+      )}
+      <Button
+        title={uploading ? 'Uploading...' : 'Upload Video'}
+        onPress={uploadToTusky}
+        disabled={!video || uploading}
+      />
+      {uploading && <ActivityIndicator style={{ marginTop: 20 }} />}
+      {status && <Text style={{ marginTop: 10 }}>{status}</Text>}
+    </View>
+  );
 };
 
 export default TuskyUpload;
