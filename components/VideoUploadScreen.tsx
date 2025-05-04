@@ -5,9 +5,11 @@ import { Buffer } from 'buffer';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { ActivityIndicator, Button, Text, View } from 'react-native';
+import { Video } from 'react-native-compressor';
 import { Upload } from 'tus-js-client';
 
 import { SECRET_KEY_HEX } from "../config";
+
 // Constants
 const API_KEY = '4c52d09a-3fdb-4972-9f9b-289d0b0e4c78';
 const VAULT_ID = '9c83bf67-7890-4b78-aed7-cad9f391da48';
@@ -42,6 +44,29 @@ const TuskyUpload = () => {
     }
   };
 
+  const compressVideo = async (uri: string): Promise<string> => {
+    try {
+      setStatus('Compressing video...');
+      const compressedUri = await Video.compress(
+        uri,
+        {
+          compressionMethod: 'auto', // Balances quality and size
+          maxSize: 720, // Maintain 720p height
+          bitrate: 2000000, // ~2 Mbps
+        },
+        (progress: number) => {
+          setStatus(`Compressing... ${(progress * 100).toFixed(2)}%`);
+        }
+      );
+      setStatus('Compression complete!');
+      return compressedUri;
+    } catch (error) {
+      console.error('Compression error:', error);
+      setStatus('❌ Compression failed');
+      throw error;
+    }
+  };
+
   const saveFileIdOnChain = async (fileId: string) => {
     try {
       const tx = new Transaction();
@@ -61,11 +86,18 @@ const TuskyUpload = () => {
   const uploadToTusky = async () => {
     if (!video) return;
     setUploading(true);
-    setStatus("Uploading...");
+    setStatus("Preparing upload...");
 
     try {
-      const res = await fetch(video.uri);
+      // Compress the video
+      const compressedUri = await compressVideo(video.uri);
+
+      // Fetch the compressed video as a blob
+      const res = await fetch(compressedUri);
       const blob = await res.blob();
+
+      // Log compressed file size
+      console.log('Compressed file size:', blob.size / 1024 / 1024, 'MB');
 
       const upload = new Upload(blob, {
         endpoint: 'https://api.tusky.io/uploads',
@@ -105,20 +137,20 @@ const TuskyUpload = () => {
   };
 
   return (
-    <View style={{ padding: 120 }}>
-      <Button title="Pick Video from Gallery" onPress={pickVideo} />
+    <View style={{ padding: 20, flex: 1, justifyContent: 'center' }}>
+      <Button title="Pick Video from Gallery" onPress={pickVideo} disabled={uploading} />
       {video && (
-        <Text style={{ marginTop: 10 }}>
+        <Text style={{ marginVertical: 10 }}>
           Selected: {video.uri.split('/').pop()}
         </Text>
       )}
       <Button
-        title={uploading ? 'Uploading...' : 'Upload Video'}
+        title={uploading ? 'Processing...' : 'Upload Video'}
         onPress={uploadToTusky}
         disabled={!video || uploading}
       />
       {uploading && <ActivityIndicator style={{ marginTop: 20 }} />}
-      {status && <Text style={{ marginTop: 10 }}>{status}</Text>}
+      {status && <Text style={{ marginTop: 10, textAlign: 'center' }}>{status}</Text>}
     </View>
   );
 };

@@ -1,7 +1,7 @@
 import TuskyVideoPlayer from '@/components/TuskeyVideoPlayer';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Dimensions, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
-import fetchOnChainFileIds from '../get_id';
+import fetchOnChainFileIds from '../../components/get_id';
 
 const { height } = Dimensions.get('window');
 
