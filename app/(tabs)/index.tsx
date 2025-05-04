@@ -1,6 +1,6 @@
 import TuskyVideoPlayer from '@/components/TuskeyVideoPlayer';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, FlatList, RefreshControl, StyleSheet, View } from 'react-native'; // ✅ Added RefreshControl
+import { Dimensions, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import fetchOnChainFileIds from '../get_id';
 
 const { height } = Dimensions.get('window');
@@ -8,7 +8,7 @@ const { height } = Dimensions.get('window');
 export default function App() {
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [fileIds, setFileIds] = useState<string[]>([]);
-  const [refreshing, setRefreshing] = useState(false); // ✅ Added
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchAndSync = async () => {
     const onChainIds = await fetchOnChainFileIds();
@@ -16,7 +16,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchAndSync(); // ✅ Load on mount
+    fetchAndSync();
   }, []);
 
   const onRefresh = useCallback(async () => {
@@ -49,7 +49,7 @@ export default function App() {
         snapToAlignment="center"
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        refreshControl={ // ✅ Pull-to-refresh handler
+        refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="white" />
         }
       />
