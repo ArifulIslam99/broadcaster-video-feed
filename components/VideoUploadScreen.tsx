@@ -2,10 +2,10 @@ import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { Buffer } from 'buffer';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { ActivityIndicator, Button, Text, View } from 'react-native';
-import { Video } from 'react-native-compressor';
 import { Upload } from 'tus-js-client';
 
 import { SECRET_KEY_HEX } from "../config";
@@ -24,9 +24,9 @@ const client = new SuiClient({ url: getFullnodeUrl("testnet") });
 const TuskyUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [video, setVideo] = useState<any>(null);
+  const [video, setVideo] = useState<{ uri: string; name: string } | null>(null);
 
-  const pickVideo = async () => {
+  const pickVideoFromGallery = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       alert('Permission required to access media library.');
@@ -35,35 +35,32 @@ const TuskyUpload = () => {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      quality: 1,
+      quality: 0.7, // Slightly reduce size
     });
 
     if (!result.canceled && result.assets?.length > 0) {
-      setVideo(result.assets[0]);
+      const asset = result.assets[0];
+      setVideo({
+        uri: asset.uri,
+        name: asset.fileName || asset.uri.split('/').pop() || 'video.mp4',
+      });
       setStatus(null);
     }
   };
 
-  const compressVideo = async (uri: string): Promise<string> => {
-    try {
-      setStatus('Compressing video...');
-      const compressedUri = await Video.compress(
-        uri,
-        {
-          compressionMethod: 'auto', // Balances quality and size
-          maxSize: 720, // Maintain 720p height
-          bitrate: 2000000, // ~2 Mbps
-        },
-        (progress: number) => {
-          setStatus(`Compressing... ${(progress * 100).toFixed(2)}%`);
-        }
-      );
-      setStatus('Compression complete!');
-      return compressedUri;
-    } catch (error) {
-      console.error('Compression error:', error);
-      setStatus('❌ Compression failed');
-      throw error;
+  const pickVideoFromFiles = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'video/*', // Filter for video files
+      copyToCacheDirectory: true, // Ensure accessible URI
+    });
+
+    if (!result.canceled && result.assets?.length > 0) {
+      const asset = result.assets[0];
+      setVideo({
+        uri: asset.uri,
+        name: asset.name || asset.uri.split('/').pop() || 'video.mp4',
+      });
+      setStatus(null);
     }
   };
 
@@ -86,18 +83,14 @@ const TuskyUpload = () => {
   const uploadToTusky = async () => {
     if (!video) return;
     setUploading(true);
-    setStatus("Preparing upload...");
+    setStatus("Uploading...");
 
     try {
-      // Compress the video
-      const compressedUri = await compressVideo(video.uri);
-
-      // Fetch the compressed video as a blob
-      const res = await fetch(compressedUri);
+      const res = await fetch(video.uri);
       const blob = await res.blob();
 
-      // Log compressed file size
-      console.log('Compressed file size:', blob.size / 1024 / 1024, 'MB');
+      // Log original file size
+      console.log('Original file size:', blob.size / 1024 / 1024, 'MB');
 
       const upload = new Upload(blob, {
         endpoint: 'https://api.tusky.io/uploads',
@@ -105,7 +98,7 @@ const TuskyUpload = () => {
           'Api-Key': API_KEY,
         },
         metadata: {
-          filename: video.uri.split('/').pop(),
+          filename: video.name,
           filetype: 'video/mp4',
           vaultId: VAULT_ID,
         },
@@ -138,14 +131,24 @@ const TuskyUpload = () => {
 
   return (
     <View style={{ padding: 20, flex: 1, justifyContent: 'center' }}>
-      <Button title="Pick Video from Gallery" onPress={pickVideo} disabled={uploading} />
+      <Button
+        title="Pick Video from Gallery"
+        onPress={pickVideoFromGallery}
+        disabled={uploading}
+      />
+      <Button
+        title="Pick Video from Files"
+        onPress={pickVideoFromFiles}
+        disabled={uploading}
+        // style={{ marginTop: 10 }}
+      />
       {video && (
         <Text style={{ marginVertical: 10 }}>
-          Selected: {video.uri.split('/').pop()}
+          Selected: {video.name}
         </Text>
       )}
       <Button
-        title={uploading ? 'Processing...' : 'Upload Video'}
+        title={uploading ? 'Uploading...' : 'Upload Video'}
         onPress={uploadToTusky}
         disabled={!video || uploading}
       />
