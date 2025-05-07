@@ -1,6 +1,7 @@
 import TuskyVideoPlayer from '@/components/TuskeyVideoPlayer';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Dimensions, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import fetchOnChainFileIds from '../../components/get_id';
 
 const { height } = Dimensions.get('window');
@@ -9,6 +10,7 @@ export default function App() {
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [fileIds, setFileIds] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isTabFocused, setIsTabFocused] = useState(true);
 
   const fetchAndSync = async () => {
     const onChainIds = await fetchOnChainFileIds();
@@ -18,6 +20,18 @@ export default function App() {
   useEffect(() => {
     fetchAndSync();
   }, []);
+
+  // Handle tab focus/blur to pause videos when switching tabs
+  useFocusEffect(
+    useCallback(() => {
+      setIsTabFocused(true);
+      console.log('Index tab focused');
+      return () => {
+        setIsTabFocused(false);
+        console.log('Index tab blurred');
+      };
+    }, [])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -41,7 +55,10 @@ export default function App() {
         data={fileIds}
         keyExtractor={(id) => id}
         renderItem={({ item, index }) => (
-          <TuskyVideoPlayer fileId={item} isVisible={visibleIndex === index} />
+          <TuskyVideoPlayer
+            fileId={item}
+            isVisible={isTabFocused && visibleIndex === index}
+          />
         )}
         pagingEnabled
         showsVerticalScrollIndicator={false}
