@@ -1,11 +1,11 @@
+import { API_KEY } from '@/config';
 import { AVPlaybackStatus, AVPlaybackStatusSuccess, ResizeMode, Video } from 'expo-av';
 import * as Network from 'expo-network';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, View } from 'react-native';
 
-const { width, height } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const API_KEY = '4c52d09a-3fdb-4972-9f9b-289d0b0e4c78';
 const MAX_LOAD_TIME_MS = 3000; // 3 seconds max load time
 
 interface Props {
@@ -19,6 +19,7 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
   const [isReadyToPlay, setIsReadyToPlay] = useState(false);
   const [networkState, setNetworkState] = useState<string>('UNKNOWN');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
   const loadStartTime = useRef<number | null>(null);
   const loadTimeout = useRef<number | null>(null);
 
@@ -62,6 +63,32 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
 
   const videoUri = `https://api.tusky.io/files/${fileId}/data`;
 
+  // Calculate video styles based on orientation
+  const getVideoStyles = () => {
+    if (!videoDimensions) {
+      return styles.video; // Default style until dimensions are known
+    }
+
+    const { width: videoWidth, height: videoHeight } = videoDimensions;
+    const isVertical = videoHeight > videoWidth;
+
+    if (isVertical) {
+      // Vertical video: display as-is
+      return styles.video;
+    } else {
+      // Horizontal video: scale to fit screen width in vertical mode
+      const aspectRatio = videoWidth / videoHeight;
+      const scaledHeight = SCREEN_WIDTH / aspectRatio;
+      return [
+        styles.video,
+        {
+          width: SCREEN_WIDTH,
+          height: scaledHeight,
+        },
+      ];
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Video
@@ -73,11 +100,11 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
             Range: 'bytes=0-65535', // Request first 64KB initially
           },
         }}
-        resizeMode={ResizeMode.COVER}
+        resizeMode={ResizeMode.CONTAIN} // Use CONTAIN to avoid cropping
         useNativeControls={true}
         isLooping
         shouldPlay={false}
-        style={styles.video}
+        style={getVideoStyles()}
         onError={(error) => {
           console.error('Video error:', error, 'Timestamp:', Date.now());
           if (loadTimeout.current) {
@@ -100,7 +127,13 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
         onLoad={(status) => {
           const loadTime = Date.now() - (loadStartTime.current || Date.now());
           const duration = (status as AVPlaybackStatusSuccess).durationMillis || 0;
+          const { naturalSize } = status as AVPlaybackStatusSuccess;
           console.log('Load complete:', Date.now(), 'Duration:', duration, 'Load time (ms):', loadTime);
+          console.log('Video dimensions:', naturalSize);
+          setVideoDimensions({
+            width: naturalSize?.width || SCREEN_WIDTH,
+            height: naturalSize?.height || SCREEN_HEIGHT,
+          });
           setIsBuffering(false);
           setIsReadyToPlay(true);
           setErrorMessage(null);
@@ -147,28 +180,28 @@ export default function TuskyVideoPlayer({ fileId, isVisible }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    width,
-    height,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
   video: {
-    width,
-    height,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
   },
   loadingOverlay: {
     position: 'absolute',
-    width,
-    height,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   errorOverlay: {
     position: 'absolute',
-    width,
-    height,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
