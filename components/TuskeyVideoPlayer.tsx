@@ -6,7 +6,7 @@ import { ActivityIndicator, Dimensions, StyleSheet, Text, View } from 'react-nat
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const MAX_LOAD_TIME_MS = 3000; // 3 seconds max load time
+const MAX_LOAD_TIME_MS = 30000; // 30 seconds max load time
 
 interface Props {
   fileId: string;

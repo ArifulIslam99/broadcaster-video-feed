@@ -6,6 +6,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { ActivityIndicator, Button, Text, View } from 'react-native';
+import { Video } from 'react-native-compressor';
 import { Upload } from 'tus-js-client';
 
 import { SECRET_KEY_HEX } from "../config";
@@ -23,19 +24,22 @@ const client = new SuiClient({ url: getFullnodeUrl("testnet") });
 
 const TuskyUpload = () => {
   const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [video, setVideo] = useState<{ uri: string; name: string } | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const pickVideoFromGallery = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      alert('Permission required to access media library.');
+      console.log('Media library permission denied');
+      setStatus('Permission required to access media library.');
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      quality: 0.7, // Slightly reduce size
+      quality: 1, // Max quality; compression handled separately
     });
 
     if (!result.canceled && result.assets?.length > 0) {
@@ -45,13 +49,14 @@ const TuskyUpload = () => {
         name: asset.fileName || asset.uri.split('/').pop() || 'video.mp4',
       });
       setStatus(null);
+      setRetryCount(0);
     }
   };
 
   const pickVideoFromFiles = async () => {
     const result = await DocumentPicker.getDocumentAsync({
-      type: 'video/*', // Filter for video files
-      copyToCacheDirectory: true, // Ensure accessible URI
+      type: 'video/*',
+      copyToCacheDirectory: true,
     });
 
     if (!result.canceled && result.assets?.length > 0) {
@@ -61,6 +66,46 @@ const TuskyUpload = () => {
         name: asset.name || asset.uri.split('/').pop() || 'video.mp4',
       });
       setStatus(null);
+      setRetryCount(0);
+    }
+  };
+
+  const compressVideo = async (inputUri: string): Promise<string> => {
+    setCompressing(true);
+    setStatus('Compressing video...');
+    console.log('Starting compression for:', inputUri);
+
+    try {
+      // Type assertion to bypass TypeScript errors
+      const options: any = {
+        compressionMethod: 'auto',
+        maxSize: 720, // 720p
+        bitrate: 2000000, // 2 Mbps
+        keyframeInterval: 1, // Keyframe every 1s
+        videoCodec: 'h264', // H.264
+        movflags: 'faststart', // Optimize for streaming
+      };
+
+      const compressedUri = await Video.compress(inputUri, options, (progress: number) => {
+        console.log(`Compression progress: ${(progress * 100).toFixed(2)}%`);
+        setStatus(`Compressing... ${(progress * 100).toFixed(2)}%`);
+      });
+
+      console.log('Compression complete:', compressedUri);
+      const originalSize = await (await fetch(inputUri)).blob().then(blob => blob.size);
+      const compressedSize = await (await fetch(compressedUri)).blob().then(blob => blob.size);
+      console.log(`Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+      setCompressing(false);
+      setRetryCount(0);
+      return compressedUri;
+    } catch (error) {
+      console.error('Compression error (attempt', retryCount + 1, '):', error);
+      setRetryCount((prev) => prev + 1);
+      console.log('Retrying compression (attempt', retryCount + 2, ')');
+      setStatus('Retrying compression...');
+      // Retry compression
+      return compressVideo(inputUri);
     }
   };
 
@@ -83,14 +128,15 @@ const TuskyUpload = () => {
   const uploadToTusky = async () => {
     if (!video) return;
     setUploading(true);
-    setStatus("Uploading...");
+    setStatus("Preparing upload...");
 
     try {
-      const res = await fetch(video.uri);
+      // Compress video
+      const compressedUri = await compressVideo(video.uri);
+      const res = await fetch(compressedUri);
       const blob = await res.blob();
 
-      // Log original file size
-      console.log('Original file size:', blob.size / 1024 / 1024, 'MB');
+      console.log('Compressed file size:', blob.size / 1024 / 1024, 'MB');
 
       const upload = new Upload(blob, {
         endpoint: 'https://api.tusky.io/uploads',
@@ -114,7 +160,7 @@ const TuskyUpload = () => {
         },
         onSuccess: () => {
           const fileId = upload?.url?.split('/').pop();
-          console.log("✅ Upload complete!", fileId);
+          console.log("✅ Upload complete! File ID:", fileId);
           setStatus(`Video uploaded! File ID: ${fileId}`);
           if (fileId) saveFileIdOnChain(fileId);
           setUploading(false);
@@ -134,13 +180,12 @@ const TuskyUpload = () => {
       <Button
         title="Pick Video from Gallery"
         onPress={pickVideoFromGallery}
-        disabled={uploading}
+        disabled={uploading || compressing}
       />
       <Button
         title="Pick Video from Files"
         onPress={pickVideoFromFiles}
-        disabled={uploading}
-        // style={{ marginTop: 10 }}
+        disabled={uploading || compressing}
       />
       {video && (
         <Text style={{ marginVertical: 10 }}>
@@ -148,11 +193,11 @@ const TuskyUpload = () => {
         </Text>
       )}
       <Button
-        title={uploading ? 'Uploading...' : 'Upload Video'}
+        title={compressing ? 'Compressing...' : uploading ? 'Uploading...' : 'Upload Video'}
         onPress={uploadToTusky}
-        disabled={!video || uploading}
+        disabled={!video || uploading || compressing}
       />
-      {uploading && <ActivityIndicator style={{ marginTop: 20 }} />}
+      {(uploading || compressing) && <ActivityIndicator style={{ marginTop: 20 }} />}
       {status && <Text style={{ marginTop: 10, textAlign: 'center' }}>{status}</Text>}
     </View>
   );
