@@ -38,6 +38,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2fbd8eec-e582-46c6-bba0-ad8068518869"
+      }
+    },
+    "owner": "tahlil"
   }
 }
